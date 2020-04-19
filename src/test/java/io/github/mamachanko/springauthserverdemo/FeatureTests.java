@@ -19,6 +19,7 @@ import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.emptyOrNullString;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
 public class FeatureTests {
@@ -62,7 +63,7 @@ public class FeatureTests {
                 .log().all()
                 .body("access_token", not(is(emptyOrNullString())))
                 .body("refresh_token", not(is(emptyOrNullString())))
-                .body("expires_in", is(2))
+                .body("expires_in", is(lessThanOrEqualTo(3)))
                 .body("token_type", is("bearer"))
                 .body("scope", is("read"))
                 .extract().path("$");
@@ -90,7 +91,7 @@ public class FeatureTests {
                 .log().all()
                 .body("access_token", allOf(not(is(emptyOrNullString())), not(is(accessToken))))
                 .body("refresh_token", allOf(not(is(emptyOrNullString())), not(is(refreshToken))))
-                .body("expires_in", is(2))
+                .body("expires_in", is(lessThanOrEqualTo(3)))
                 .body("token_type", is("bearer"))
                 .body("scope", is("read"));
     }
