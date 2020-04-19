@@ -11,15 +11,22 @@ import org.springframework.boot.web.server.LocalServerPort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.jwt.crypto.sign.MacSigner;
+import org.springframework.security.oauth2.common.ExpiringOAuth2RefreshToken;
+import org.springframework.security.oauth2.common.OAuth2AccessToken;
+import org.springframework.security.oauth2.provider.token.store.JwtAccessTokenConverter;
+import org.springframework.security.oauth2.provider.token.store.JwtTokenStore;
 
+import java.time.Instant;
+import java.util.Date;
 import java.util.Map;
 
 import static io.restassured.RestAssured.given;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.emptyOrNullString;
 import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.lessThanOrEqualTo;
 
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
 public class FeatureTests {
@@ -27,6 +34,10 @@ public class FeatureTests {
     @LocalServerPort
     private int serverPort;
     private RequestSpecification requestSpecification;
+
+    final String tokenSigningKey = "secret-signing-key";
+    final int accessTokenExpiry = 60;
+    final int refreshTokenExpiry = 60 * 60;
 
     @BeforeEach
     void setUp() {
@@ -63,13 +74,17 @@ public class FeatureTests {
                 .log().all()
                 .body("access_token", not(is(emptyOrNullString())))
                 .body("refresh_token", not(is(emptyOrNullString())))
-                .body("expires_in", is(lessThanOrEqualTo(3)))
                 .body("token_type", is("bearer"))
                 .body("scope", is("read"))
                 .extract().path("$");
 
         String accessToken = tokenResponse.get("access_token");
         String refreshToken = tokenResponse.get("refresh_token");
+
+        assertThat(convertAccessToken(accessToken, tokenSigningKey).getExpiration())
+                .isBeforeOrEqualTo(secondsFromNow(accessTokenExpiry));
+        assertThat(convertRefreshToken(refreshToken, tokenSigningKey).getExpiration())
+                .isBeforeOrEqualTo(secondsFromNow(refreshTokenExpiry));
 
         given(requestSpecification)
                 .auth().oauth2(accessToken)
@@ -91,8 +106,25 @@ public class FeatureTests {
                 .log().all()
                 .body("access_token", allOf(not(is(emptyOrNullString())), not(is(accessToken))))
                 .body("refresh_token", allOf(not(is(emptyOrNullString())), not(is(refreshToken))))
-                .body("expires_in", is(lessThanOrEqualTo(3)))
                 .body("token_type", is("bearer"))
                 .body("scope", is("read"));
+    }
+
+    private OAuth2AccessToken convertAccessToken(String accessToken, String secretKey) {
+        JwtAccessTokenConverter jwtTokenEnhancer = new JwtAccessTokenConverter();
+        jwtTokenEnhancer.setVerifier(new MacSigner(secretKey));
+        JwtTokenStore jwtTokenStore = new JwtTokenStore(jwtTokenEnhancer);
+        return jwtTokenStore.readAccessToken(accessToken);
+    }
+
+    private ExpiringOAuth2RefreshToken convertRefreshToken(String refreshToken, String secretKey) {
+        JwtAccessTokenConverter jwtTokenEnhancer = new JwtAccessTokenConverter();
+        jwtTokenEnhancer.setVerifier(new MacSigner(secretKey));
+        JwtTokenStore jwtTokenStore = new JwtTokenStore(jwtTokenEnhancer);
+        return (ExpiringOAuth2RefreshToken) jwtTokenStore.readRefreshToken(refreshToken);
+    }
+
+    private Date secondsFromNow(int seconds) {
+        return Date.from(Instant.now().plusSeconds(seconds));
     }
 }
