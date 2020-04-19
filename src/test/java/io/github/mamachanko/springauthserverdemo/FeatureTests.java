@@ -12,9 +12,12 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 
+import java.util.Map;
+
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.CoreMatchers.not;
-import static org.hamcrest.Matchers.emptyString;
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.emptyOrNullString;
 import static org.hamcrest.Matchers.is;
 
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
@@ -46,19 +49,26 @@ public class FeatureTests {
                 .then()
                 .statusCode(HttpStatus.UNAUTHORIZED.value());
 
-        String accessToken = given(requestSpecification)
+        Map<String, String> tokenResponse = given(requestSpecification)
                 .auth().basic("client", "")
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE)
                 .param("grant_type", "password")
                 .param("username", "test-user")
                 .param("password", "test-password")
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE)
                 .when()
                 .post("/oauth/token")
                 .then()
                 .statusCode(HttpStatus.OK.value())
-                .body("access_token", not(is(emptyString())))
-                .body("expires_in", is(43199))
-                .extract().path("access_token");
+                .log().all()
+                .body("access_token", not(is(emptyOrNullString())))
+                .body("refresh_token", not(is(emptyOrNullString())))
+                .body("expires_in", is(2))
+                .body("token_type", is("bearer"))
+                .body("scope", is("read"))
+                .extract().path("$");
+
+        String accessToken = tokenResponse.get("access_token");
+        String refreshToken = tokenResponse.get("refresh_token");
 
         given(requestSpecification)
                 .auth().oauth2(accessToken)
@@ -67,5 +77,21 @@ public class FeatureTests {
                 .then()
                 .statusCode(HttpStatus.OK.value())
                 .body("you.name", is("test-user"));
+
+        given(requestSpecification)
+                .auth().basic("client", "")
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+                .param("grant_type", "refresh_token")
+                .param("refresh_token", refreshToken)
+                .when()
+                .post("/oauth/token")
+                .then()
+                .statusCode(HttpStatus.OK.value())
+                .log().all()
+                .body("access_token", allOf(not(is(emptyOrNullString())), not(is(accessToken))))
+                .body("refresh_token", allOf(not(is(emptyOrNullString())), not(is(refreshToken))))
+                .body("expires_in", is(2))
+                .body("token_type", is("bearer"))
+                .body("scope", is("read"));
     }
 }
